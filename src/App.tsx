@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import * as Papa from "papaparse";
 import * as XLSX from "xlsx";
+import { Toaster, toast } from "sonner";
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
   LineChart, Line, PieChart, Pie, Cell, AreaChart, Area 
@@ -155,9 +156,11 @@ export default function App() {
     if (!data) return;
 
     setUploadProgress({ status: "loading", message: "Uploading to server..." });
+    const toastId = toast.loading("Uploading dataset...");
     try {
       await api.uploadData(data, mode);
       setUploadProgress({ status: "done", message: "Dataset updated successfully!" });
+      toast.success("Dataset updated successfully", { id: toastId });
       setPreviewData(null);
       loadData();
       // Refresh states/crops
@@ -166,18 +169,22 @@ export default function App() {
       setCrops(c);
     } catch (err) {
       setUploadProgress({ status: "error", message: "Failed to sync with server" });
+      toast.error("Failed to sync with server", { id: toastId });
     }
   };
 
   const resetToDefault = async () => {
     setLoading(true);
+    const toastId = toast.loading("Restoring default dataset...");
     try {
       await api.resetData();
       await loadData();
       const [s, c] = await Promise.all([api.getStates(), api.getCrops()]);
       setStates(s);
       setCrops(c);
+      toast.success("Database reset to factory default", { id: toastId });
     } catch (err) {
+      toast.error("Reset failed");
       console.error(err);
     } finally {
       setLoading(false);
@@ -294,50 +301,50 @@ export default function App() {
               className="space-y-8"
             >
               {/* Filter Bar */}
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 bg-white/50 p-3 rounded-2xl border border-amber-100 shadow-sm backdrop-blur-sm">
-                <div className="flex items-center gap-3 px-3">
-                  <Filter className="text-amber-500" size={18} />
-                  <span className="text-sm font-bold text-amber-900/60">Filters</span>
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 bg-white/50 p-3 rounded-2xl border border-amber-100 shadow-sm backdrop-blur-sm dark:bg-slate-900/50 dark:border-slate-800">
+                  <div className="flex items-center gap-3 px-3">
+                    <Filter className="text-amber-500" size={18} />
+                    <span className={`text-sm font-bold ${theme === 'dark' ? 'text-slate-400' : 'text-amber-900/60'}`}>Filters</span>
+                  </div>
+                  <Select value={filters.state} onValueChange={(v) => setFilters(prev => ({ ...prev, state: v }))}>
+                    <SelectTrigger className={`border-none rounded-xl h-12 text-sm shadow-sm ring-amber-100 focus:ring-2 focus:ring-amber-400 transition-all ${theme === 'dark' ? 'bg-slate-800/80 text-white' : 'bg-white/80 text-amber-900'}`}>
+                      <div className="flex items-center gap-2 cursor-pointer">
+                         <Map size={16} className="text-amber-400" />
+                         <SelectValue placeholder="All States" />
+                      </div>
+                    </SelectTrigger>
+                    <SelectContent className={`rounded-xl ${theme === 'dark' ? 'bg-slate-900 border-slate-800 text-white' : 'border-amber-100'}`}>
+                      <SelectItem value="All" className="cursor-pointer">All States</SelectItem>
+                      {states.map(s => <SelectItem key={s} value={s} className="cursor-pointer">{s}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+
+                  <Select value={filters.crop} onValueChange={(v) => setFilters(prev => ({ ...prev, crop: v }))}>
+                    <SelectTrigger className={`border-none rounded-xl h-12 text-sm shadow-sm ring-amber-100 focus:ring-2 focus:ring-amber-400 transition-all ${theme === 'dark' ? 'bg-slate-800/80 text-white' : 'bg-white/80 text-amber-900'}`}>
+                      <div className="flex items-center gap-2 cursor-pointer">
+                         <Wheat size={16} className="text-amber-400" />
+                         <SelectValue placeholder="All Crops" />
+                      </div>
+                    </SelectTrigger>
+                    <SelectContent className={`rounded-xl ${theme === 'dark' ? 'bg-slate-900 border-slate-800 text-white' : 'border-amber-100'}`}>
+                      <SelectItem value="All" className="cursor-pointer">All Crops</SelectItem>
+                      {crops.map(c => <SelectItem key={c} value={c} className="cursor-pointer">{c}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+
+                  <Select value={filters.year} onValueChange={(v) => setFilters(prev => ({ ...prev, year: v }))}>
+                    <SelectTrigger className={`border-none rounded-xl h-12 text-sm shadow-sm ring-amber-100 focus:ring-2 focus:ring-amber-400 transition-all ${theme === 'dark' ? 'bg-slate-800/80 text-white' : 'bg-white/80 text-amber-900'}`}>
+                      <div className="flex items-center gap-2 cursor-pointer">
+                         <Calendar size={16} className="text-amber-400" />
+                         <SelectValue placeholder="All Years" />
+                      </div>
+                    </SelectTrigger>
+                    <SelectContent className={`rounded-xl ${theme === 'dark' ? 'bg-slate-900 border-slate-800 text-white' : 'border-amber-100'}`}>
+                      <SelectItem value="All" className="cursor-pointer">All Years</SelectItem>
+                      {[2018, 2019, 2020, 2021, 2022, 2023].map(y => <SelectItem key={y} value={y.toString()} className="cursor-pointer">{y}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
                 </div>
-                <Select value={filters.state} onValueChange={(v) => setFilters(prev => ({ ...prev, state: v }))}>
-                  <SelectTrigger className="bg-white/80 border-none rounded-xl h-12 text-sm shadow-sm ring-amber-100 focus:ring-2 focus:ring-amber-400 transition-all">
-                    <div className="flex items-center gap-2">
-                       <Map size={16} className="text-amber-400" />
-                       <SelectValue placeholder="All States" />
-                    </div>
-                  </SelectTrigger>
-                  <SelectContent className="rounded-xl border-amber-100">
-                    <SelectItem value="All">All States</SelectItem>
-                    {states.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-
-                <Select value={filters.crop} onValueChange={(v) => setFilters(prev => ({ ...prev, crop: v }))}>
-                  <SelectTrigger className="bg-white/80 border-none rounded-xl h-12 text-sm shadow-sm ring-amber-100 focus:ring-2 focus:ring-amber-400 transition-all">
-                    <div className="flex items-center gap-2">
-                       <Wheat size={16} className="text-amber-400" />
-                       <SelectValue placeholder="All Crops" />
-                    </div>
-                  </SelectTrigger>
-                  <SelectContent className="rounded-xl border-amber-100">
-                    <SelectItem value="All">All Crops</SelectItem>
-                    {crops.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-
-                <Select value={filters.year} onValueChange={(v) => setFilters(prev => ({ ...prev, year: v }))}>
-                  <SelectTrigger className="bg-white/80 border-none rounded-xl h-12 text-sm shadow-sm ring-amber-100 focus:ring-2 focus:ring-amber-400 transition-all">
-                    <div className="flex items-center gap-2">
-                       <Calendar size={16} className="text-amber-400" />
-                       <SelectValue placeholder="All Years" />
-                    </div>
-                  </SelectTrigger>
-                  <SelectContent className="rounded-xl border-amber-100">
-                    <SelectItem value="All">All Years</SelectItem>
-                    {[2018, 2019, 2020, 2021, 2022, 2023].map(y => <SelectItem key={y} value={y.toString()}>{y}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
 
               {activeView === "dashboard" && (
                 <>
@@ -583,15 +590,15 @@ export default function App() {
 
                   <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                     <div className="lg:col-span-2 space-y-6">
-                      <Card className={`rounded-[2.5rem] p-8 border shadow-sm ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-amber-100'}`}>
+                      <Card className={`rounded-[2.5rem] p-8 border shadow-lg hover:shadow-xl transition-all duration-300 ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-amber-100'}`}>
                         <div className="flex items-center gap-2 mb-6">
                           <Database className="text-amber-500" size={20} />
                           <h4 className={`text-xl font-bold ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>Dataset Management</h4>
                         </div>
                         
                         <div className="space-y-8">
-                          <div className={`p-8 rounded-3xl border-2 border-dashed flex flex-col items-center justify-center transition-all ${theme === 'dark' ? 'border-slate-800 bg-slate-800/20' : 'border-amber-100 bg-amber-50/30'}`}>
-                            <Upload className="text-amber-400 mb-4" size={40} />
+                          <div className={`p-8 rounded-3xl border-2 border-dashed flex flex-col items-center justify-center transition-all group ${theme === 'dark' ? 'border-slate-800 bg-slate-800/20 hover:bg-slate-800/40' : 'border-amber-100 bg-amber-50/30 hover:bg-amber-50/50'}`}>
+                            <Upload className="text-amber-400 mb-4 group-hover:scale-110 transition-transform" size={40} />
                             <h5 className="font-bold text-lg">Import Custom Data</h5>
                             <p className="text-sm text-slate-500 mb-6 font-medium">Supported formats: .CSV, .XLSX</p>
                             
@@ -605,7 +612,7 @@ export default function App() {
                             
                             <Button 
                               onClick={() => fileInputRef.current?.click()}
-                              className="bg-amber-500 hover:bg-amber-600 rounded-xl px-8"
+                              className="bg-amber-500 hover:bg-amber-600 rounded-xl px-12 h-12 font-bold shadow-lg shadow-amber-200/50 cursor-pointer"
                             >
                               Choose File
                             </Button>
@@ -803,6 +810,7 @@ export default function App() {
           </div>
         </div>
       </footer>
+      <Toaster position="bottom-right" theme={theme} />
     </div>
   );
 }

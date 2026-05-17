@@ -205,16 +205,30 @@ async function startServer() {
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `);
 
+    // Helper to find value by case-insensitive key
+    const getValue = (obj: any, target: string) => {
+      const key = Object.keys(obj).find(k => k.toLowerCase().trim() === target.toLowerCase());
+      return key ? obj[key] : null;
+    };
+
     const transaction = db.transaction((rows) => {
       for (const row of rows) {
+        const state = getValue(row, "State") || getValue(row, "state") || "Unknown";
+        const district = getValue(row, "District") || getValue(row, "district") || "";
+        const year = parseInt(String(getValue(row, "Year") || getValue(row, "year") || 2023));
+        const crop = getValue(row, "Crop") || getValue(row, "crop") || "Unknown";
+        const area = parseFloat(String(getValue(row, "Area") || getValue(row, "area") || 0));
+        const prod = parseFloat(String(getValue(row, "Production") || getValue(row, "production") || 0));
+        const yieldVal = area > 0 ? (prod / area) : parseFloat(String(getValue(row, "Yield") || getValue(row, "yield") || 0));
+
         insert.run(
-          row.State || row.state,
-          row.District || row.district || "",
-          parseInt(row.Year || row.year),
-          row.Crop || row.crop,
-          parseFloat(row.Area || row.area || 0),
-          parseFloat(row.Production || row.production || 0),
-          parseFloat(row.Yield || row.yield || 0)
+          String(state).trim(),
+          String(district).trim(),
+          year,
+          String(crop).trim(),
+          area,
+          prod,
+          yieldVal
         );
       }
     });
@@ -223,6 +237,7 @@ async function startServer() {
       transaction(data);
       res.json({ status: "success", count: data.length });
     } catch (error) {
+      console.error(error);
       res.status(500).json({ error: "Failed to upload data" });
     }
   });
