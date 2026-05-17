@@ -119,7 +119,7 @@ export default function App() {
 
       try {
         if (file.name.endsWith(".csv")) {
-          const results = Papa.parse(bstr as string, { header: true });
+          const results = Papa.parse(bstr as string, { header: true, skipEmptyLines: true });
           data = results.data;
         } else {
           const workbook = XLSX.read(bstr, { type: "binary" });
@@ -127,20 +127,26 @@ export default function App() {
           data = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName]);
         }
 
-        // Validate columns
-        const required = ["State", "Crop", "Year", "Production", "Area"];
-        const headers = Object.keys(data[0] || {});
-        const missing = required.filter(r => !headers.some(h => h.toLowerCase() === r.toLowerCase()));
+        if (data.length === 0) {
+          throw new Error("The file appears to be empty.");
+        }
+
+        // Validate columns with trimming and case-insensitivity
+        const required = ["State", "Crop", "Production", "Area"];
+        const actualHeaders = Object.keys(data[0] || {}).map(h => h.trim().toLowerCase());
+        const missing = required.filter(r => !actualHeaders.includes(r.toLowerCase()));
 
         if (missing.length > 0) {
-          throw new Error(`Missing required columns: ${missing.join(", ")}`);
+          throw new Error(`Missing required columns: ${missing.join(", ")}. Please check your headers.`);
         }
 
         setPreviewData(data.slice(0, 5));
-        setUploadProgress({ status: "success", message: `Found ${data.length} records. Ready to upload.` });
+        setUploadProgress({ status: "success", message: `File ready: ${data.length} records found.` });
         (window as any).pendingUploadData = data;
+        toast.success("File parsed successfully!");
       } catch (err: any) {
         setUploadProgress({ status: "error", message: err.message });
+        toast.error(err.message || "Failed to parse file");
       }
     };
 
@@ -149,6 +155,26 @@ export default function App() {
     } else {
       reader.readAsBinaryString(file);
     }
+  };
+
+  const downloadTemplate = () => {
+    const headers = ["State", "District", "Year", "Crop", "Area", "Production", "Yield"];
+    const sampleData = [
+      ["Punjab", "Amritsar", "2023", "Wheat", "1200", "5500", "4.58"],
+      ["Maharashtra", "Pune", "2023", "Sugarcane", "800", "72000", "90"]
+    ];
+    
+    const csvContent = [headers, ...sampleData].map(e => e.join(",")).join("\n");
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    link.setAttribute("href", url);
+    link.setAttribute("download", "agridata_template.csv");
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    toast.info("Template downloaded!");
   };
 
   const executeUpload = async (mode: 'replace' | 'merge') => {
@@ -610,12 +636,21 @@ export default function App() {
                               accept=".csv, .xlsx" 
                             />
                             
-                            <Button 
-                              onClick={() => fileInputRef.current?.click()}
-                              className="bg-amber-500 hover:bg-amber-600 rounded-xl px-12 h-12 font-bold shadow-lg shadow-amber-200/50 cursor-pointer"
-                            >
-                              Choose File
-                            </Button>
+                            <div className="flex gap-4">
+                              <Button 
+                                onClick={() => fileInputRef.current?.click()}
+                                className="bg-amber-500 hover:bg-amber-600 rounded-xl px-12 h-12 font-bold shadow-lg shadow-amber-200/50 cursor-pointer"
+                              >
+                                Choose File
+                              </Button>
+                              <Button 
+                                variant="outline"
+                                onClick={downloadTemplate}
+                                className="rounded-xl h-12 px-6 border-amber-200 text-amber-700 hover:bg-amber-50"
+                              >
+                                Download Template
+                              </Button>
+                            </div>
                           </div>
 
                           {uploadProgress && (
