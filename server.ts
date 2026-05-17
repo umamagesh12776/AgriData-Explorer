@@ -2,7 +2,6 @@ import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
 import fs from "fs";
-import { GoogleGenAI } from "@google/genai";
 import initSqlJs, { Database as SqlJsDatabase } from "sql.js";
 
 const DB_PATH = "agridata.db";
@@ -85,15 +84,7 @@ class DatabaseCompat {
 // --- App code ---
 
 let db: DatabaseCompat;
-
-const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY || "",
-  httpOptions: {
-    headers: {
-      'User-Agent': 'aistudio-build',
-    }
-  }
-});
+let ai: any = null;
 
 // Seed Data helper
 function seedData() {
@@ -164,18 +155,34 @@ async function startServer() {
   `);
   seedData();
 
+  // Initialize AI client if API key is available
+  const geminiApiKey = process.env.GEMINI_API_KEY;
+  if (geminiApiKey) {
+    try {
+      const { GoogleGenAI } = await import("@google/genai");
+      ai = new GoogleGenAI({
+        apiKey: geminiApiKey,
+        httpOptions: { headers: { 'User-Agent': 'aistudio-build' } }
+      });
+      console.log("Gemini AI initialized.");
+    } catch {
+      console.log("Gemini AI not available. AI insights will be disabled.");
+    }
+  } else {
+    console.log("No GEMINI_API_KEY set. AI insights disabled.");
+  }
+
   const app = express();
   const PORT = 3000;
 
-  app.use(express.json());
+  app.use(express.json({ limit: "50mb" }));
 
   // AI Insights Endpoint (Optional Advanced Feature)
   app.post("/api/insights/generate", async (req, res) => {
     try {
       const { dataSummary } = req.body;
-      const apiKey = process.env.GEMINI_API_KEY;
-      if (!apiKey) {
-        return res.status(500).json({ error: "Gemini API key not configured" });
+      if (!ai) {
+        return res.status(200).json({ insight: "AI insights are not available. To enable this feature, set the GEMINI_API_KEY environment variable." });
       }
 
       const response = await ai.models.generateContent({
