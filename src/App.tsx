@@ -8,7 +8,7 @@ import {
 } from "recharts";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
-  TrendingUp, TreePine, Map, Calendar, Search, Filter, 
+  TrendingUp, TreePine, Map as MapIcon, Calendar, Search, Filter, 
   Loader2, Wheat, ChevronRight, BarChart3, Database, Wand2,
   Tractor, Sprout, ArrowUpRight, ArrowDownRight, Info,
   TrendingDown, PieChart as PieIcon, LineChart as LineIcon,
@@ -488,7 +488,7 @@ export default function App() {
                   <Select value={filters.state} onValueChange={(v) => setFilters(prev => ({ ...prev, state: v }))}>
                     <SelectTrigger className={`border-none rounded-xl h-12 text-sm shadow-sm ring-amber-100 focus:ring-2 focus:ring-amber-400 transition-all ${theme === 'dark' ? 'bg-slate-800/80 text-white' : 'bg-white/80 text-amber-900'}`}>
                       <div className="flex items-center gap-2 cursor-pointer">
-                         <Map size={16} className="text-amber-400" />
+                         <MapIcon size={16} className="text-amber-400" />
                          <SelectValue placeholder="All States" />
                       </div>
                     </SelectTrigger>
@@ -532,7 +532,7 @@ export default function App() {
                   {[
                     { title: "Total Production", value: `${(summary?.totalProduction! / 1e6).toFixed(2)}M`, unit: "Metric Tons", icon: Database, color: "amber", trend: "+2.4%" },
                     { title: "Average Yield", value: summary?.avgYield.toFixed(2), unit: "Tons / Hectare", icon: TrendingUp, color: "emerald", trend: "+1.2%" },
-                    { title: "Total Area", value: `${(summary?.totalArea! / 1e6).toFixed(2)}M`, unit: "Hectares", icon: Map, color: "blue", trend: "-0.5%" },
+                    { title: "Total Area", value: `${(summary?.totalArea! / 1e6).toFixed(2)}M`, unit: "Hectares", icon: MapIcon, color: "blue", trend: "-0.5%" },
                   ].map((kpi, i) => (
                     <motion.div
                       key={i}

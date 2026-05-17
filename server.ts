@@ -1,10 +1,90 @@
-import Database from "better-sqlite3";
 import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
+import fs from "fs";
 import { GoogleGenAI } from "@google/genai";
+import initSqlJs, { Database as SqlJsDatabase } from "sql.js";
 
-const db = new Database("agridata.db");
+const DB_PATH = "agridata.db";
+
+// --- Compatibility layer: sql.js API → better-sqlite3-like API ---
+
+class StatementCompat {
+  private db: SqlJsDatabase;
+  private sql: string;
+
+  constructor(db: SqlJsDatabase, sql: string) {
+    this.db = db;
+    this.sql = sql;
+  }
+
+  get(...params: any[]): any {
+    const stmt = this.db.prepare(this.sql);
+    if (params.length > 0) stmt.bind(params);
+    let result: any = null;
+    if (stmt.step()) {
+      result = stmt.getAsObject();
+    }
+    stmt.free();
+    return result;
+  }
+
+  all(...params: any[]): any[] {
+    const stmt = this.db.prepare(this.sql);
+    if (params.length > 0) stmt.bind(params);
+    const results: any[] = [];
+    while (stmt.step()) {
+      results.push(stmt.getAsObject());
+    }
+    stmt.free();
+    return results;
+  }
+
+  run(...params: any[]): void {
+    this.db.run(this.sql, params);
+  }
+}
+
+class DatabaseCompat {
+  private db: SqlJsDatabase;
+
+  constructor(db: SqlJsDatabase) {
+    this.db = db;
+  }
+
+  exec(sql: string): void {
+    // sql.js exec can handle multiple statements but returns results;
+    // we ignore the return value just like better-sqlite3's exec
+    this.db.exec(sql);
+  }
+
+  prepare(sql: string): StatementCompat {
+    return new StatementCompat(this.db, sql);
+  }
+
+  transaction<T extends (...args: any[]) => any>(fn: T): T {
+    return ((...args: any[]) => {
+      this.db.run("BEGIN");
+      try {
+        const result = fn(...args);
+        this.db.run("COMMIT");
+        return result;
+      } catch (e) {
+        this.db.run("ROLLBACK");
+        throw e;
+      }
+    }) as T;
+  }
+
+  save(): void {
+    const data = this.db.export();
+    fs.writeFileSync(DB_PATH, Buffer.from(data));
+  }
+}
+
+// --- App code ---
+
+let db: DatabaseCompat;
 
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY || "",
@@ -14,20 +94,6 @@ const ai = new GoogleGenAI({
     }
   }
 });
-
-// Initialize Database
-db.exec(`
-  CREATE TABLE IF NOT EXISTS crop_data (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    state TEXT,
-    district TEXT,
-    year INTEGER,
-    crop TEXT,
-    area REAL,
-    production REAL,
-    yield REAL
-  )
-`);
 
 // Seed Data helper
 function seedData() {
@@ -67,12 +133,37 @@ function seedData() {
       });
     });
   });
+  db.save();
   console.log("Database seeded successfully.");
 }
 
-seedData();
-
 async function startServer() {
+  // Initialize sql.js and load/create database
+  const SQL = await initSqlJs();
+  let sqlJsDb: SqlJsDatabase;
+  if (fs.existsSync(DB_PATH)) {
+    const buffer = fs.readFileSync(DB_PATH);
+    sqlJsDb = new SQL.Database(buffer);
+  } else {
+    sqlJsDb = new SQL.Database();
+  }
+  db = new DatabaseCompat(sqlJsDb);
+
+  // Initialize Database
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS crop_data (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      state TEXT,
+      district TEXT,
+      year INTEGER,
+      crop TEXT,
+      area REAL,
+      production REAL,
+      yield REAL
+    )
+  `);
+  seedData();
+
   const app = express();
   const PORT = 3000;
 
@@ -263,6 +354,7 @@ async function startServer() {
 
     try {
       transaction(data);
+      db.save();
       res.json({ status: "success", count: data.length });
     } catch (error) {
       console.error(error);
