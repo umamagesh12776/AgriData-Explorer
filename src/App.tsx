@@ -30,6 +30,136 @@ import { Input } from "@/components/ui/input";
 
 const COLORS = ["#F59E0B", "#10B981", "#3B82F6", "#EF4444", "#8B5CF6", "#EC4899"];
 
+// --- Wide-format detection and transformation ---
+
+// Detect if headers represent wide-format agricultural data (e.g. "RICE AREA (1000 ha)")
+const isWideFormat = (headers: string[]): boolean => {
+  return headers.some(h => /\s+AREA\s*[\(\[]/i.test(h.trim()) || /\s+PRODUCTION\s*[\(\[]/i.test(h.trim()));
+};
+
+// Parse a numeric value, handling "NA", commas, empty strings
+const parseNum = (val: any): number => {
+  if (val === undefined || val === null || val === "") return 0;
+  const str = String(val).replace(/,/g, "").trim();
+  if (str === "" || str.toUpperCase() === "NA") return 0;
+  const num = parseFloat(str);
+  return isNaN(num) ? 0 : num;
+};
+
+// Transform wide-format agricultural data (per-crop columns) to narrow format (one row per crop)
+const transformWideFormat = (data: any[]): any[] => {
+  const result: any[] = [];
+  if (data.length === 0) return result;
+
+  const headers = Object.keys(data[0] || {});
+
+  // Patterns to extract crop name from column headers
+  const areaPattern = /^(.+?)\s+AREA\s*[\(\[]/i;
+  const productionPattern = /^(.+?)\s+PRODUCTION\s*[\(\[]/i;
+  const yieldPattern = /^(.+?)\s+YIELD\s*[\(\[]/i;
+
+  // Also handle columns like "FRUITS AREA (1000 ha)" that may have no production/yield
+  const areaOnlyPattern = /^(.+?)\s+AREA\b/i;
+
+  // Map each crop name to its column keys
+  const crops: Map<string, { areaCol?: string; productionCol?: string; yieldCol?: string }> = new Map();
+
+  const registerCrop = (name: string) => {
+    const trimmed = name.trim();
+    if (!crops.has(trimmed)) crops.set(trimmed, {});
+    return crops.get(trimmed)!;
+  };
+
+  for (const header of headers) {
+    const trimmedHeader = header.trim();
+
+    const areaMatch = trimmedHeader.match(areaPattern);
+    if (areaMatch) {
+      registerCrop(areaMatch[1]).areaCol = header;
+      continue;
+    }
+
+    const prodMatch = trimmedHeader.match(productionPattern);
+    if (prodMatch) {
+      registerCrop(prodMatch[1]).productionCol = header;
+      continue;
+    }
+
+    const yieldMatch = trimmedHeader.match(yieldPattern);
+    if (yieldMatch) {
+      registerCrop(yieldMatch[1]).yieldCol = header;
+      continue;
+    }
+
+    // Fallback: column ending with AREA but without parentheses (e.g. "FODDER AREA")
+    const areaOnlyMatch = trimmedHeader.match(areaOnlyPattern);
+    if (areaOnlyMatch) {
+      const entry = registerCrop(areaOnlyMatch[1]);
+      if (!entry.areaCol) entry.areaCol = header;
+    }
+  }
+
+  // Find identifying columns (flexible matching)
+  const findCol = (patterns: string[]): string | undefined => {
+    // Exact match first
+    for (const header of headers) {
+      const lower = header.trim().toLowerCase();
+      for (const pattern of patterns) {
+        if (lower === pattern) return header;
+      }
+    }
+    // Contains match fallback
+    for (const header of headers) {
+      const lower = header.trim().toLowerCase();
+      for (const pattern of patterns) {
+        if (lower.includes(pattern)) return header;
+      }
+    }
+    return undefined;
+  };
+
+  const stateCol = findCol(["state name", "state_name", "state"]);
+  const districtCol = findCol(["dist name", "district name", "dist_name", "district", "dist name"]);
+  const yearCol = findCol(["year", "crop year", "crop_year"]);
+
+  // Transform each row: one input row → multiple output rows (one per crop)
+  for (const row of data) {
+    const state = stateCol ? String(row[stateCol] || "").trim() || "Unknown" : "Unknown";
+    const district = districtCol ? String(row[districtCol] || "").trim() : "";
+    let year = yearCol ? parseNum(row[yearCol]) : 0;
+
+    // Handle crop year format like "2020-21" → 2020
+    if (year === 0 && yearCol && row[yearCol]) {
+      const yearStr = String(row[yearCol]);
+      const yearMatch = yearStr.match(/(\d{4})/);
+      if (yearMatch) year = parseInt(yearMatch[1]);
+      else year = 2023;
+    }
+    if (year === 0) year = 2023;
+
+    for (const [cropName, cols] of crops) {
+      const area = cols.areaCol ? parseNum(row[cols.areaCol]) : 0;
+      const production = cols.productionCol ? parseNum(row[cols.productionCol]) : 0;
+      const yieldVal = cols.yieldCol ? parseNum(row[cols.yieldCol]) : 0;
+
+      // Skip crops with no data at all in this row
+      if (area === 0 && production === 0 && yieldVal === 0) continue;
+
+      result.push({
+        State: state,
+        District: district,
+        Year: year,
+        Crop: cropName,
+        Area: area,
+        Production: production,
+        Yield: yieldVal,
+      });
+    }
+  }
+
+  return result;
+};
+
 type View = "dashboard" | "crop-analysis" | "market-trends" | "settings";
 
 export default function App() {
@@ -111,6 +241,7 @@ export default function App() {
     if (!file) return;
 
     setUploadProgress({ status: "loading", message: "Parsing file..." });
+    setPreviewData(null);
     
     const reader = new FileReader();
     reader.onload = async (e) => {
@@ -119,7 +250,7 @@ export default function App() {
 
       try {
         if (file.name.endsWith(".csv")) {
-          const results = Papa.parse(bstr as string, { header: true, skipEmptyLines: true });
+          const results = Papa.parse(bstr as string, { header: true, skipEmptyLines: true, dynamicTyping: true });
           data = results.data;
         } else {
           const workbook = XLSX.read(bstr, { type: "binary" });
@@ -131,17 +262,39 @@ export default function App() {
           throw new Error("The file appears to be empty.");
         }
 
-        // Validate columns with trimming and case-insensitivity
-        const required = ["State", "Crop", "Production", "Area"];
-        const actualHeaders = Object.keys(data[0] || {}).map(h => h.trim().toLowerCase());
-        const missing = required.filter(r => !actualHeaders.includes(r.toLowerCase()));
+        // Remove fully empty rows
+        data = data.filter(row => Object.values(row).some(v => v !== null && v !== undefined && String(v).trim() !== ""));
 
-        if (missing.length > 0) {
-          throw new Error(`Missing required columns: ${missing.join(", ")}. Please check your headers.`);
+        if (data.length === 0) {
+          throw new Error("No data rows found after removing empty rows.");
+        }
+
+        const headers = Object.keys(data[0] || {}).map(h => h.trim());
+
+        // Auto-detect format: wide (per-crop columns) vs narrow (State/Crop/Area/Production)
+        if (isWideFormat(headers)) {
+          setUploadProgress({ status: "loading", message: "Detected wide-format data. Transforming..." });
+          const originalCount = data.length;
+          data = transformWideFormat(data);
+          if (data.length === 0) {
+            throw new Error("No valid crop data found after transformation. Ensure your file has columns like 'RICE AREA (1000 ha)', 'RICE PRODUCTION (1000 tons)', etc.");
+          }
+          setUploadProgress({ status: "success", message: `Wide format detected. ${originalCount} rows expanded to ${data.length} crop records.` });
+        } else {
+          // Narrow format: validate that essential columns exist
+          const normalizedHeaders = headers.map(h => h.toLowerCase());
+          const hasRequired = ["state", "crop"].every(r =>
+            normalizedHeaders.some(h => h === r || h.includes(r))
+          );
+          if (!hasRequired) {
+            throw new Error(
+              "File must contain 'State' and 'Crop' columns (narrow format), or use wide format with per-crop columns like 'RICE AREA (1000 ha)'."
+            );
+          }
+          setUploadProgress({ status: "success", message: `File ready: ${data.length} records found.` });
         }
 
         setPreviewData(data.slice(0, 5));
-        setUploadProgress({ status: "success", message: `File ready: ${data.length} records found.` });
         (window as any).pendingUploadData = data;
         toast.success("File parsed successfully!");
       } catch (err: any) {
@@ -682,23 +835,29 @@ export default function App() {
                                 <Eye size={12} />
                                 Preview (First 5 Rows)
                               </div>
-                              <div className={`rounded-2xl border overflow-hidden ${theme === 'dark' ? 'border-slate-800' : 'border-amber-100'}`}>
+                              <div className={`rounded-2xl border overflow-x-auto ${theme === 'dark' ? 'border-slate-800' : 'border-amber-100'}`}>
                                 <Table>
                                   <TableHeader className={theme === 'dark' ? 'bg-slate-800' : 'bg-amber-50'}>
                                     <TableRow>
                                       <TableHead className="text-[10px]">State</TableHead>
-                                      <TableHead className="text-[10px]">Crop</TableHead>
+                                      <TableHead className="text-[10px]">District</TableHead>
                                       <TableHead className="text-[10px]">Year</TableHead>
-                                      <TableHead className="text-[10px]">Prod</TableHead>
+                                      <TableHead className="text-[10px]">Crop</TableHead>
+                                      <TableHead className="text-[10px]">Area</TableHead>
+                                      <TableHead className="text-[10px]">Production</TableHead>
+                                      <TableHead className="text-[10px]">Yield</TableHead>
                                     </TableRow>
                                   </TableHeader>
                                   <TableBody>
                                     {previewData.map((row, i) => (
                                       <TableRow key={i}>
-                                        <TableCell className="text-xs font-bold">{row.State || row.state}</TableCell>
-                                        <TableCell className="text-xs">{row.Crop || row.crop}</TableCell>
-                                        <TableCell className="text-xs">{row.Year || row.year}</TableCell>
-                                        <TableCell className="text-xs">{row.Production || row.production}</TableCell>
+                                        <TableCell className="text-xs font-bold whitespace-nowrap">{row.State || row.state || '\u2014'}</TableCell>
+                                        <TableCell className="text-xs whitespace-nowrap">{row.District || row.district || '\u2014'}</TableCell>
+                                        <TableCell className="text-xs">{row.Year || row.year || '\u2014'}</TableCell>
+                                        <TableCell className="text-xs font-medium whitespace-nowrap">{row.Crop || row.crop || '\u2014'}</TableCell>
+                                        <TableCell className="text-xs">{row.Area ?? row.area ?? '\u2014'}</TableCell>
+                                        <TableCell className="text-xs">{row.Production ?? row.production ?? '\u2014'}</TableCell>
+                                        <TableCell className="text-xs">{row.Yield ?? row.yield ?? '\u2014'}</TableCell>
                                       </TableRow>
                                     ))}
                                   </TableBody>

@@ -196,6 +196,11 @@ async function startServer() {
 
   app.post("/api/data/upload", (req, res) => {
     const { data, mode } = req.body; // mode: 'replace' or 'merge'
+    if (!data || !Array.isArray(data) || data.length === 0) {
+      res.status(400).json({ error: "No data provided" });
+      return;
+    }
+
     if (mode === "replace") {
       db.prepare("DELETE FROM crop_data").run();
     }
@@ -205,31 +210,54 @@ async function startServer() {
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `);
 
-    // Helper to find value by case-insensitive key
-    const getValue = (obj: any, target: string) => {
-      const key = Object.keys(obj).find(k => k.toLowerCase().trim() === target.toLowerCase());
-      return key ? obj[key] : null;
+    // Parse numeric values robustly (handles "NA", commas, empty strings)
+    const parseNum = (val: any): number => {
+      if (val === undefined || val === null || val === "") return 0;
+      const str = String(val).replace(/,/g, "").trim();
+      if (str === "" || str.toUpperCase() === "NA") return 0;
+      const num = parseFloat(str);
+      return isNaN(num) ? 0 : num;
+    };
+
+    // Helper to find value by flexible case-insensitive key matching
+    const getValue = (obj: any, targets: string[]): any => {
+      for (const target of targets) {
+        const key = Object.keys(obj).find(k => k.trim().toLowerCase() === target.toLowerCase());
+        if (key && obj[key] !== undefined && obj[key] !== null) {
+          const val = String(obj[key]).trim();
+          if (val !== "" && val.toUpperCase() !== "NA") return obj[key];
+        }
+      }
+      return null;
     };
 
     const transaction = db.transaction((rows) => {
       for (const row of rows) {
-        const state = getValue(row, "State") || getValue(row, "state") || "Unknown";
-        const district = getValue(row, "District") || getValue(row, "district") || "";
-        const year = parseInt(String(getValue(row, "Year") || getValue(row, "year") || 2023));
-        const crop = getValue(row, "Crop") || getValue(row, "crop") || "Unknown";
-        const area = parseFloat(String(getValue(row, "Area") || getValue(row, "area") || 0));
-        const prod = parseFloat(String(getValue(row, "Production") || getValue(row, "production") || 0));
-        const yieldVal = area > 0 ? (prod / area) : parseFloat(String(getValue(row, "Yield") || getValue(row, "yield") || 0));
+        const state = String(getValue(row, ["State", "state", "State Name", "state_name"]) || "Unknown").trim();
+        const district = String(getValue(row, ["District", "district", "Dist Name", "dist_name", "District Name"]) || "").trim();
+        const yearRaw = getValue(row, ["Year", "year", "Crop Year", "crop_year"]);
+        const crop = String(getValue(row, ["Crop", "crop", "Crop Name", "crop_name"]) || "Unknown").trim();
+        const area = parseNum(getValue(row, ["Area", "area"]) ?? row["Area"] ?? row["area"] ?? 0);
+        const prod = parseNum(getValue(row, ["Production", "production"]) ?? row["Production"] ?? row["production"] ?? 0);
+        const yieldRaw = parseNum(getValue(row, ["Yield", "yield"]) ?? row["Yield"] ?? row["yield"] ?? 0);
 
-        insert.run(
-          String(state).trim(),
-          String(district).trim(),
-          year,
-          String(crop).trim(),
-          area,
-          prod,
-          yieldVal
-        );
+        // Parse year robustly (handles "2020-21" format)
+        let year = 0;
+        if (yearRaw !== null) {
+          const yearNum = parseInt(String(yearRaw));
+          if (!isNaN(yearNum) && yearNum > 1900) {
+            year = yearNum;
+          } else {
+            const yearMatch = String(yearRaw).match(/(\d{4})/);
+            year = yearMatch ? parseInt(yearMatch[1]) : 2023;
+          }
+        }
+        if (year === 0) year = 2023;
+
+        // Compute yield from production/area if yield not provided
+        const yieldVal = (prod > 0 && area > 0) ? (yieldRaw > 0 ? yieldRaw : prod / area) : yieldRaw;
+
+        insert.run(state, district, year, crop, area, prod, yieldVal);
       }
     });
 
