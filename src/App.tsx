@@ -1,4 +1,6 @@
-import { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
+import * as Papa from "papaparse";
+import * as XLSX from "xlsx";
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
   LineChart, Line, PieChart, Pie, Cell, AreaChart, Area 
@@ -9,7 +11,8 @@ import {
   Loader2, Wheat, ChevronRight, BarChart3, Database, Wand2,
   Tractor, Sprout, ArrowUpRight, ArrowDownRight, Info,
   TrendingDown, PieChart as PieIcon, LineChart as LineIcon,
-  BookOpen, Lightbulb, CheckCircle2
+  BookOpen, Lightbulb, CheckCircle2, Moon, Sun, Settings as SettingsIcon,
+  Upload, Trash2, RefreshCw, Eye
 } from "lucide-react";
 import { api } from "./services/api";
 import { Filters, SummaryData, TrendData, StateComparisonData, CropDistributionData } from "./types";
@@ -20,14 +23,23 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger, DialogClose } from "@/components/ui/dialog";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 
 const COLORS = ["#F59E0B", "#10B981", "#3B82F6", "#EF4444", "#8B5CF6", "#EC4899"];
 
-type View = "dashboard" | "crop-analysis" | "market-trends";
+type View = "dashboard" | "crop-analysis" | "market-trends" | "settings";
 
 export default function App() {
   const [activeView, setActiveView] = useState<View>("dashboard");
   const [loading, setLoading] = useState(true);
+  const [theme, setTheme] = useState<"light" | "dark">(() => {
+    return (localStorage.getItem("theme") as "light" | "dark") || "light";
+  });
+  const [insightsEnabled, setInsightsEnabled] = useState(true);
+  const [chartsEnabled, setChartsEnabled] = useState(true);
+  
   const [filters, setFilters] = useState<Filters>({ state: "All", crop: "All", year: "All" });
   const [states, setStates] = useState<string[]>([]);
   const [crops, setCrops] = useState<string[]>([]);
@@ -37,6 +49,15 @@ export default function App() {
   const [cropDistribution, setCropDistribution] = useState<CropDistributionData[]>([]);
   const [aiInsight, setAiInsight] = useState<string | null>(null);
   const [generatingInsight, setGeneratingInsight] = useState(false);
+  
+  const [uploadProgress, setUploadProgress] = useState<{status: string, message: string} | null>(null);
+  const [previewData, setPreviewData] = useState<any[] | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", theme === "dark");
+    localStorage.setItem("theme", theme);
+  }, [theme]);
 
   useEffect(() => {
     Promise.all([api.getStates(), api.getCrops()]).then(([s, c]) => {
@@ -84,12 +105,91 @@ export default function App() {
     }
   };
 
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setUploadProgress({ status: "loading", message: "Parsing file..." });
+    
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      const bstr = e.target?.result;
+      let data: any[] = [];
+
+      try {
+        if (file.name.endsWith(".csv")) {
+          const results = Papa.parse(bstr as string, { header: true });
+          data = results.data;
+        } else {
+          const workbook = XLSX.read(bstr, { type: "binary" });
+          const sheetName = workbook.SheetNames[0];
+          data = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName]);
+        }
+
+        // Validate columns
+        const required = ["State", "Crop", "Year", "Production", "Area"];
+        const headers = Object.keys(data[0] || {});
+        const missing = required.filter(r => !headers.some(h => h.toLowerCase() === r.toLowerCase()));
+
+        if (missing.length > 0) {
+          throw new Error(`Missing required columns: ${missing.join(", ")}`);
+        }
+
+        setPreviewData(data.slice(0, 5));
+        setUploadProgress({ status: "success", message: `Found ${data.length} records. Ready to upload.` });
+        (window as any).pendingUploadData = data;
+      } catch (err: any) {
+        setUploadProgress({ status: "error", message: err.message });
+      }
+    };
+
+    if (file.name.endsWith(".csv")) {
+      reader.readAsText(file);
+    } else {
+      reader.readAsBinaryString(file);
+    }
+  };
+
+  const executeUpload = async (mode: 'replace' | 'merge') => {
+    const data = (window as any).pendingUploadData;
+    if (!data) return;
+
+    setUploadProgress({ status: "loading", message: "Uploading to server..." });
+    try {
+      await api.uploadData(data, mode);
+      setUploadProgress({ status: "done", message: "Dataset updated successfully!" });
+      setPreviewData(null);
+      loadData();
+      // Refresh states/crops
+      const [s, c] = await Promise.all([api.getStates(), api.getCrops()]);
+      setStates(s);
+      setCrops(c);
+    } catch (err) {
+      setUploadProgress({ status: "error", message: "Failed to sync with server" });
+    }
+  };
+
+  const resetToDefault = async () => {
+    setLoading(true);
+    try {
+      await api.resetData();
+      await loadData();
+      const [s, c] = await Promise.all([api.getStates(), api.getCrops()]);
+      setStates(s);
+      setCrops(c);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
-    <div className="min-h-screen bg-[#FFFDF5] text-slate-900 font-sans selection:bg-amber-200">
+    <div className={`min-h-screen transition-colors duration-300 ${theme === 'dark' ? 'bg-[#0f1115] text-slate-100' : 'bg-[#FFFDF5] text-slate-900'} font-sans selection:bg-amber-200`}>
       {/* Header */}
-      <nav className="sticky top-0 z-50 bg-white/70 backdrop-blur-xl border-b border-amber-100/50 px-6 py-4">
+      <nav className={`sticky top-0 z-50 ${theme === 'dark' ? 'bg-slate-900/80 border-slate-800' : 'bg-white/70 border-amber-100/50'} backdrop-blur-xl border-b px-6 py-4`}>
         <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 cursor-pointer" onClick={() => setActiveView("dashboard")}>
             <div className="w-10 h-10 bg-amber-400 rounded-xl flex items-center justify-center text-white shadow-lg shadow-amber-200">
               <Sprout size={24} strokeWidth={2.5} />
             </div>
@@ -116,6 +216,20 @@ export default function App() {
               className={`text-sm font-medium transition-colors ${activeView === "market-trends" ? "text-amber-600" : "text-amber-900/70 hover:text-amber-600"}`}
             >
               Market Trends
+            </button>
+            
+            <button 
+              onClick={() => setActiveView("settings")}
+              className={`p-2 rounded-xl transition-colors ${activeView === "settings" ? "bg-amber-100 text-amber-600" : "text-amber-900/70 hover:bg-amber-50"}`}
+            >
+              <SettingsIcon size={20} />
+            </button>
+
+            <button 
+              onClick={() => setTheme(theme === "light" ? "dark" : "light")}
+              className={`p-2 rounded-xl transition-colors ${theme === 'dark' ? 'bg-slate-800 text-amber-400' : 'bg-amber-50 text-amber-600'}`}
+            >
+              {theme === "light" ? <Moon size={20} /> : <Sun size={20} />}
             </button>
             
             <Dialog>
@@ -237,21 +351,21 @@ export default function App() {
                     <motion.div
                       key={i}
                       whileHover={{ y: -5 }}
-                      className="p-6 rounded-[2.5rem] bg-white border border-amber-100 shadow-[0_8px_30px_rgb(253,251,241,0.5)] border-b-4 border-b-amber-200/50 relative overflow-hidden group"
+                      className={`p-6 rounded-[2.5rem] border shadow-sm border-b-4 relative overflow-hidden group transition-all ${theme === 'dark' ? 'bg-slate-900 border-slate-800 border-b-amber-900/50' : 'bg-white border-amber-100 border-b-amber-200/50'}`}
                     >
-                      <div className={`absolute top-0 right-0 w-32 h-32 bg-${kpi.color}-50/50 rounded-full blur-3xl -mr-16 -mt-16 group-hover:scale-150 transition-all duration-500`} />
+                      <div className={`absolute top-0 right-0 w-32 h-32 bg-${kpi.color}-500/5 rounded-full blur-3xl -mr-16 -mt-16 group-hover:scale-150 transition-all duration-500`} />
                       <div className="flex justify-between items-start relative z-10">
                         <div>
                           <p className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-1">{kpi.title}</p>
-                          <h3 className="text-3xl font-black text-slate-900 tracking-tight">{kpi.value}</h3>
+                          <h3 className={`text-3xl font-black tracking-tight ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>{kpi.value}</h3>
                           <p className="text-[10px] font-bold text-slate-400 mt-1">{kpi.unit}</p>
                         </div>
-                        <div className={`w-12 h-12 rounded-2xl bg-${kpi.color}-50 flex items-center justify-center text-${kpi.color}-600 border border-${kpi.color}-100`}>
+                        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center border ${theme === 'dark' ? 'bg-slate-800 text-amber-500 border-slate-700' : 'bg-amber-50 text-amber-600 border-amber-100'}`}>
                           <kpi.icon size={24} />
                         </div>
                       </div>
                       <div className="mt-6 flex items-center gap-2 relative z-10">
-                        <Badge variant="secondary" className={`bg-${kpi.color}-50 text-${kpi.color}-700 border-none rounded-lg font-bold text-[10px]`}>
+                        <Badge variant="secondary" className={`${theme === 'dark' ? 'bg-slate-800 text-amber-400' : 'bg-amber-50 text-amber-700'} border-none rounded-lg font-bold text-[10px]`}>
                           {kpi.trend.startsWith('+') ? <ArrowUpRight size={10} className="mr-1 inline" /> : <ArrowDownRight size={10} className="mr-1 inline" />}
                           {kpi.trend} vs LY
                         </Badge>
@@ -264,22 +378,24 @@ export default function App() {
                 {/* Main Analytics Tabs */}
                 <Tabs defaultValue="overview" className="space-y-6">
                   <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                    <TabsList className="bg-amber-100/50 p-1 rounded-2xl h-12 inline-flex border border-amber-100/80">
-                      <TabsTrigger value="overview" className="rounded-xl px-6 data-[state=active]:bg-white data-[state=active]:text-amber-700 data-[state=active]:shadow-sm font-bold text-xs uppercase tracking-wider transition-all">Overview</TabsTrigger>
-                      <TabsTrigger value="states" className="rounded-xl px-6 data-[state=active]:bg-white data-[state=active]:text-amber-700 data-[state=active]:shadow-sm font-bold text-xs uppercase tracking-wider transition-all">States</TabsTrigger>
-                      <TabsTrigger value="yield" className="rounded-xl px-6 data-[state=active]:bg-white data-[state=active]:text-amber-700 data-[state=active]:shadow-sm font-bold text-xs uppercase tracking-wider transition-all">Yield Density</TabsTrigger>
+                    <TabsList className={`${theme === 'dark' ? 'bg-slate-800 border-slate-700' : 'bg-amber-100/50 border-amber-100/80'} p-1 rounded-2xl h-12 inline-flex border`}>
+                      <TabsTrigger value="overview" className={`rounded-xl px-6 data-[state=active]:shadow-sm font-bold text-xs uppercase tracking-wider transition-all ${theme === 'dark' ? 'data-[state=active]:bg-slate-700 data-[state=active]:text-amber-400' : 'data-[state=active]:bg-white data-[state=active]:text-amber-700'}`}>Overview</TabsTrigger>
+                      <TabsTrigger value="states" className={`rounded-xl px-6 data-[state=active]:shadow-sm font-bold text-xs uppercase tracking-wider transition-all ${theme === 'dark' ? 'data-[state=active]:bg-slate-700 data-[state=active]:text-amber-400' : 'data-[state=active]:bg-white data-[state=active]:text-amber-700'}`}>States</TabsTrigger>
+                      <TabsTrigger value="yield" className={`rounded-xl px-6 data-[state=active]:shadow-sm font-bold text-xs uppercase tracking-wider transition-all ${theme === 'dark' ? 'data-[state=active]:bg-slate-700 data-[state=active]:text-amber-400' : 'data-[state=active]:bg-white data-[state=active]:text-amber-700'}`}>Yield Density</TabsTrigger>
                     </TabsList>
 
                     <div className="flex items-center gap-2">
-                      <Button 
-                        variant="outline" 
-                        className="rounded-xl border-amber-200 text-amber-700 h-10 px-4 hover:bg-amber-50"
-                        onClick={handleGenerateAI}
-                        disabled={generatingInsight}
-                      >
-                        {generatingInsight ? <Loader2 size={16} className="animate-spin mr-2" /> : <Wand2 size={16} className="mr-2" />}
-                        Predictive Insight
-                      </Button>
+                      {insightsEnabled && (
+                        <Button 
+                          variant="outline" 
+                          className={`rounded-xl h-10 px-4 transition-all ${theme === 'dark' ? 'border-slate-700 text-slate-300 hover:bg-slate-800' : 'border-amber-200 text-amber-700 hover:bg-amber-50'}`}
+                          onClick={handleGenerateAI}
+                          disabled={generatingInsight}
+                        >
+                          {generatingInsight ? <Loader2 size={16} className="animate-spin mr-2" /> : <Wand2 size={16} className="mr-2" />}
+                          Predictive Insight
+                        </Button>
+                      )}
                       <Button variant="ghost" size="icon" className="rounded-xl text-amber-500 hover:bg-amber-50">
                         <Info size={20} />
                       </Button>
@@ -287,10 +403,11 @@ export default function App() {
                   </div>
 
                   <TabsContent value="overview" className="space-y-6">
+                    {chartsEnabled ? (
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                        <Card className="rounded-[2.5rem] border-amber-100 shadow-sm overflow-hidden bg-white min-h-[450px]">
+                        <Card className={`rounded-[2.5rem] shadow-sm overflow-hidden min-h-[450px] ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-amber-100'}`}>
                           <CardHeader className="pb-0 pt-8 px-8">
-                            <CardTitle className="text-xl font-bold text-slate-900">Production Trendlines</CardTitle>
+                            <CardTitle className={`text-xl font-bold ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>Production Trendlines</CardTitle>
                             <CardDescription>Yearly aggregate production growth patterns</CardDescription>
                           </CardHeader>
                           <CardContent className="h-[350px] p-4 w-full">
@@ -302,11 +419,11 @@ export default function App() {
                                     <stop offset="95%" stopColor="#F59E0B" stopOpacity={0}/>
                                   </linearGradient>
                                 </defs>
-                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" />
+                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={theme === 'dark' ? "#1e293b" : "#F1F5F9"} />
                                 <XAxis dataKey="year" axisLine={false} tickLine={false} tick={{fill: '#94A3B8', fontSize: 12}} />
                                 <YAxis axisLine={false} tickLine={false} tick={{fill: '#94A3B8', fontSize: 12}} />
                                 <Tooltip 
-                                  contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
+                                  contentStyle={{ backgroundColor: theme === 'dark' ? '#0f172a' : '#fff', borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
                                   cursor={{ stroke: '#F59E0B', strokeWidth: 2 }}
                                 />
                                 <Area type="monotone" dataKey="production" stroke="#F59E0B" strokeWidth={4} fillOpacity={1} fill="url(#colorProd)" />
@@ -315,13 +432,12 @@ export default function App() {
                           </CardContent>
                         </Card>
 
-                        <Card className="rounded-[2.5rem] border-amber-100 shadow-sm overflow-hidden bg-white min-h-[450px]">
+                        <Card className={`rounded-[2.5rem] shadow-sm overflow-hidden min-h-[450px] ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-amber-100'}`}>
                           <CardHeader className="pb-0 pt-8 px-8 flex flex-row items-center justify-between space-y-0">
                             <div>
-                              <CardTitle className="text-xl font-bold text-slate-900">Crop Distribution</CardTitle>
+                              <CardTitle className={`text-xl font-bold ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>Crop Distribution</CardTitle>
                               <CardDescription>Share of crops in regional production</CardDescription>
                             </div>
-                    
                           </CardHeader>
                           <CardContent className="h-[350px] p-4 w-full">
                             <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
@@ -343,13 +459,20 @@ export default function App() {
                                   ))}
                                 </Pie>
                                 <Tooltip 
-                                  contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
+                                  contentStyle={{ backgroundColor: theme === 'dark' ? '#0f172a' : '#fff', borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
                                 />
                               </PieChart>
                             </ResponsiveContainer>
                           </CardContent>
                         </Card>
                     </div>
+                    ) : (
+                      <div className={`p-12 rounded-[2.5rem] border border-dashed flex flex-col items-center justify-center text-center ${theme === 'dark' ? 'border-slate-800 text-slate-500' : 'border-amber-200 text-amber-700/50'}`}>
+                        <BarChart3 size={48} className="mb-4 opacity-20" />
+                        <h3 className="text-xl font-bold">Charts are hidden</h3>
+                        <p className="text-sm">Enable them in the Settings page to visualize your data.</p>
+                      </div>
+                    )}
 
                     {aiInsight && (
                       <motion.div
@@ -442,63 +565,173 @@ export default function App() {
                 </>
               )}
 
-              {activeView === "crop-analysis" && (
-                <div className="space-y-8">
-                  <div className="flex items-center justify-between">
+              {activeView === "settings" && (
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.98 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  className="space-y-8"
+                >
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 bg-amber-100 rounded-2xl flex items-center justify-center text-amber-600">
+                      <SettingsIcon size={24} />
+                    </div>
                     <div>
-                      <h2 className="text-3xl font-black text-amber-900 leading-tight">Detailed Crop Analysis</h2>
-                      <p className="text-slate-500 font-medium mt-1">Granular harvest metrics and regional efficiency</p>
-                    </div>
-                    <div className="w-16 h-16 bg-emerald-100 rounded-3xl flex items-center justify-center text-emerald-600 border border-emerald-200">
-                      <Tractor size={32} />
+                      <h2 className={`text-3xl font-black leading-tight ${theme === 'dark' ? 'text-white' : 'text-amber-900'}`}>System Settings</h2>
+                      <p className="text-slate-500 font-medium">Manage datasets, interface, and AI preferences</p>
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                    <Card className="rounded-[2.5rem] border-amber-100 shadow-sm bg-white p-8">
-                      <h4 className="text-xl font-bold mb-6 flex items-center gap-2">
-                        <TrendingUp className="text-emerald-500" size={20} />
-                        Efficiency Matrix
-                      </h4>
-                      <Table>
-                        <TableHeader>
-                          <TableRow className="border-amber-50">
-                            <TableHead className="font-bold text-amber-900">Crop</TableHead>
-                            <TableHead className="font-bold text-amber-900">Avg Area (M Ha)</TableHead>
-                            <TableHead className="font-bold text-amber-900">Efficiency</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {cropDistribution.map((item, i) => (
-                            <TableRow key={i} className="hover:bg-amber-50/50 transition-colors border-amber-50">
-                              <TableCell className="font-bold text-slate-700">{item.crop}</TableCell>
-                              <TableCell className="text-slate-500">{(item.production / 1000).toFixed(2)}</TableCell>
-                              <TableCell>
-                                <Badge className="bg-emerald-100 text-emerald-700 border-none font-bold">Optimal</Badge>
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </Card>
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                    <div className="lg:col-span-2 space-y-6">
+                      <Card className={`rounded-[2.5rem] p-8 border shadow-sm ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-amber-100'}`}>
+                        <div className="flex items-center gap-2 mb-6">
+                          <Database className="text-amber-500" size={20} />
+                          <h4 className={`text-xl font-bold ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>Dataset Management</h4>
+                        </div>
+                        
+                        <div className="space-y-8">
+                          <div className={`p-8 rounded-3xl border-2 border-dashed flex flex-col items-center justify-center transition-all ${theme === 'dark' ? 'border-slate-800 bg-slate-800/20' : 'border-amber-100 bg-amber-50/30'}`}>
+                            <Upload className="text-amber-400 mb-4" size={40} />
+                            <h5 className="font-bold text-lg">Import Custom Data</h5>
+                            <p className="text-sm text-slate-500 mb-6 font-medium">Supported formats: .CSV, .XLSX</p>
+                            
+                            <input 
+                              type="file" 
+                              ref={fileInputRef} 
+                              onChange={handleFileUpload} 
+                              className="hidden" 
+                              accept=".csv, .xlsx" 
+                            />
+                            
+                            <Button 
+                              onClick={() => fileInputRef.current?.click()}
+                              className="bg-amber-500 hover:bg-amber-600 rounded-xl px-8"
+                            >
+                              Choose File
+                            </Button>
+                          </div>
 
-                    <Card className="rounded-[2.5rem] border-amber-100 shadow-sm bg-white p-8">
-                      <h4 className="text-xl font-bold mb-6 flex items-center gap-2">
-                        <LineIcon className="text-amber-500" size={20} />
-                        Yield Density Heat
-                      </h4>
-                      <div className="h-[300px] w-full">
-                        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
-                          <BarChart data={cropDistribution}>
-                            <XAxis dataKey="crop" axisLine={false} tickLine={false} />
-                            <Tooltip contentStyle={{ borderRadius: '12px', border: 'none' }} />
-                            <Bar dataKey="production" fill="#10B981" radius={[10, 10, 0, 0]} />
-                          </BarChart>
-                        </ResponsiveContainer>
-                      </div>
-                    </Card>
+                          {uploadProgress && (
+                            <motion.div 
+                              initial={{ opacity: 0, y: 10 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              className={`p-4 rounded-2xl border flex items-center gap-4 ${
+                                uploadProgress.status === 'success' ? 'bg-emerald-50 border-emerald-100 text-emerald-800' : 
+                                uploadProgress.status === 'error' ? 'bg-rose-50 border-rose-100 text-rose-800' : 
+                                'bg-amber-50 border-amber-100 text-amber-800'
+                              }`}
+                            >
+                              {uploadProgress.status === 'loading' ? <Loader2 className="animate-spin text-amber-500" /> : <Info />}
+                              <div className="flex-1">
+                                <p className="text-sm font-bold">{uploadProgress.message}</p>
+                              </div>
+                              {uploadProgress.status === 'success' && (
+                                <div className="flex gap-2">
+                                  <Button size="sm" variant="outline" className="bg-white" onClick={() => executeUpload('merge')}>Merge</Button>
+                                  <Button size="sm" className="bg-amber-500" onClick={() => executeUpload('replace')}>Replace All</Button>
+                                </div>
+                              )}
+                            </motion.div>
+                          )}
+
+                          {previewData && (
+                            <div className="space-y-4">
+                              <div className="flex items-center gap-2 text-slate-400 text-xs font-black uppercase tracking-widest">
+                                <Eye size={12} />
+                                Preview (First 5 Rows)
+                              </div>
+                              <div className={`rounded-2xl border overflow-hidden ${theme === 'dark' ? 'border-slate-800' : 'border-amber-100'}`}>
+                                <Table>
+                                  <TableHeader className={theme === 'dark' ? 'bg-slate-800' : 'bg-amber-50'}>
+                                    <TableRow>
+                                      <TableHead className="text-[10px]">State</TableHead>
+                                      <TableHead className="text-[10px]">Crop</TableHead>
+                                      <TableHead className="text-[10px]">Year</TableHead>
+                                      <TableHead className="text-[10px]">Prod</TableHead>
+                                    </TableRow>
+                                  </TableHeader>
+                                  <TableBody>
+                                    {previewData.map((row, i) => (
+                                      <TableRow key={i}>
+                                        <TableCell className="text-xs font-bold">{row.State || row.state}</TableCell>
+                                        <TableCell className="text-xs">{row.Crop || row.crop}</TableCell>
+                                        <TableCell className="text-xs">{row.Year || row.year}</TableCell>
+                                        <TableCell className="text-xs">{row.Production || row.production}</TableCell>
+                                      </TableRow>
+                                    ))}
+                                  </TableBody>
+                                </Table>
+                              </div>
+                            </div>
+                          )}
+
+                          <div className="pt-6 border-t border-slate-100 dark:border-slate-800 flex justify-between items-center">
+                            <div>
+                              <h5 className={`font-bold ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>Reset to Default Dataset</h5>
+                              <p className="text-xs text-slate-500">Restore factory state dataset and trends</p>
+                            </div>
+                            <Button 
+                              variant="outline" 
+                              onClick={resetToDefault}
+                              className="rounded-xl border-amber-200 text-amber-600 hover:bg-amber-50"
+                            >
+                              <RefreshCw size={16} className="mr-2" /> Reset Data
+                            </Button>
+                          </div>
+                        </div>
+                      </Card>
+                    </div>
+
+                    <div className="space-y-6">
+                      <Card className={`rounded-[2.5rem] p-8 border shadow-sm ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-amber-100'}`}>
+                        <div className="flex items-center gap-2 mb-6">
+                          <Eye className="text-amber-500" size={20} />
+                          <h4 className={`text-xl font-bold ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>Interface Prefs</h4>
+                        </div>
+                        
+                        <div className="space-y-6">
+                          <div className="flex items-center justify-between">
+                            <div className="space-y-0.5">
+                              <Label className="text-sm font-bold">Dark Mode</Label>
+                              <p className="text-xs text-slate-500">Enable high contrast dark theme</p>
+                            </div>
+                            <Switch checked={theme === "dark"} onCheckedChange={(v) => setTheme(v ? "dark" : "light")} />
+                          </div>
+
+                          <div className="flex items-center justify-between">
+                            <div className="space-y-0.5">
+                              <Label className="text-sm font-bold">Predictive Insights</Label>
+                              <p className="text-xs text-slate-500">Show AI analysis buttons</p>
+                            </div>
+                            <Switch checked={insightsEnabled} onCheckedChange={setInsightsEnabled} />
+                          </div>
+
+                          <div className="flex items-center justify-between">
+                            <div className="space-y-0.5">
+                              <Label className="text-sm font-bold">Visual Analytics</Label>
+                              <p className="text-xs text-slate-500">Toggle charts and graphs</p>
+                            </div>
+                            <Switch checked={chartsEnabled} onCheckedChange={setChartsEnabled} />
+                          </div>
+                        </div>
+                      </Card>
+
+                      <Card className={`rounded-[2.5rem] p-8 border shadow-sm ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-amber-100'}`}>
+                         <h5 className="font-bold mb-2">Usage Summary</h5>
+                         <div className="space-y-4">
+                            <div className="flex justify-between text-xs">
+                              <span className="text-slate-500">Custom Records</span>
+                              <span className="font-bold">0</span>
+                            </div>
+                            <div className="flex justify-between text-xs">
+                              <span className="text-slate-500">Last Sync</span>
+                              <span className="font-bold">Just now</span>
+                            </div>
+                         </div>
+                      </Card>
+                    </div>
                   </div>
-                </div>
+                </motion.div>
               )}
 
               {activeView === "market-trends" && (

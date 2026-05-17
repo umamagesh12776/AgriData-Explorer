@@ -188,6 +188,45 @@ async function startServer() {
     res.json(distribution);
   });
 
+  app.post("/api/data/reset", (req, res) => {
+    db.prepare("DELETE FROM crop_data").run();
+    seedData();
+    res.json({ status: "success", message: "Database reset to default" });
+  });
+
+  app.post("/api/data/upload", (req, res) => {
+    const { data, mode } = req.body; // mode: 'replace' or 'merge'
+    if (mode === "replace") {
+      db.prepare("DELETE FROM crop_data").run();
+    }
+
+    const insert = db.prepare(`
+      INSERT INTO crop_data (state, district, year, crop, area, production, yield)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    const transaction = db.transaction((rows) => {
+      for (const row of rows) {
+        insert.run(
+          row.State || row.state,
+          row.District || row.district || "",
+          parseInt(row.Year || row.year),
+          row.Crop || row.crop,
+          parseFloat(row.Area || row.area || 0),
+          parseFloat(row.Production || row.production || 0),
+          parseFloat(row.Yield || row.yield || 0)
+        );
+      }
+    });
+
+    try {
+      transaction(data);
+      res.json({ status: "success", count: data.length });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to upload data" });
+    }
+  });
+
   // Vite setup
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({

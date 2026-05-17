@@ -36,5 +36,17 @@ export const api = {
       body: JSON.stringify({ dataSummary }),
     });
     return res.json();
+  },
+  resetData: async () => {
+    const res = await fetch("/api/data/reset", { method: "POST" });
+    return res.json();
+  },
+  uploadData: async (data: any[], mode: 'replace' | 'merge') => {
+    const res = await fetch("/api/data/upload", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ data, mode }),
+    });
+    return res.json();
   }
 };
