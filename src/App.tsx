@@ -7,7 +7,9 @@ import { motion, AnimatePresence } from "framer-motion";
 import { 
   TrendingUp, TreePine, Map, Calendar, Search, Filter, 
   Loader2, Wheat, ChevronRight, BarChart3, Database, Wand2,
-  Tractor, Sprout, ArrowUpRight, ArrowDownRight, Info
+  Tractor, Sprout, ArrowUpRight, ArrowDownRight, Info,
+  TrendingDown, PieChart as PieIcon, LineChart as LineIcon,
+  BookOpen, Lightbulb, CheckCircle2
 } from "lucide-react";
 import { api } from "./services/api";
 import { Filters, SummaryData, TrendData, StateComparisonData, CropDistributionData } from "./types";
@@ -16,10 +18,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger, DialogClose } from "@/components/ui/dialog";
 
 const COLORS = ["#F59E0B", "#10B981", "#3B82F6", "#EF4444", "#8B5CF6", "#EC4899"];
 
+type View = "dashboard" | "crop-analysis" | "market-trends";
+
 export default function App() {
+  const [activeView, setActiveView] = useState<View>("dashboard");
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState<Filters>({ state: "All", crop: "All", year: "All" });
   const [states, setStates] = useState<string[]>([]);
@@ -92,10 +99,61 @@ export default function App() {
             </div>
           </div>
           <div className="hidden md:flex items-center gap-8">
-            <a href="#" className="text-sm font-medium text-amber-900/70 hover:text-amber-600 transition-colors">Dashboard</a>
-            <a href="#" className="text-sm font-medium text-amber-900/70 hover:text-amber-600 transition-colors">Crop Analysis</a>
-            <a href="#" className="text-sm font-medium text-amber-900/70 hover:text-amber-600 transition-colors">Market Trends</a>
-            <Button size="sm" className="bg-amber-500 hover:bg-amber-600 text-white rounded-full px-5">Get Started</Button>
+            <button 
+              onClick={() => setActiveView("dashboard")}
+              className={`text-sm font-medium transition-colors ${activeView === "dashboard" ? "text-amber-600" : "text-amber-900/70 hover:text-amber-600"}`}
+            >
+              Dashboard
+            </button>
+            <button 
+              onClick={() => setActiveView("crop-analysis")}
+              className={`text-sm font-medium transition-colors ${activeView === "crop-analysis" ? "text-amber-600" : "text-amber-900/70 hover:text-amber-600"}`}
+            >
+              Crop Analysis
+            </button>
+            <button 
+              onClick={() => setActiveView("market-trends")}
+              className={`text-sm font-medium transition-colors ${activeView === "market-trends" ? "text-amber-600" : "text-amber-900/70 hover:text-amber-600"}`}
+            >
+              Market Trends
+            </button>
+            
+            <Dialog>
+              <DialogTrigger render={<Button size="sm" className="bg-amber-500 hover:bg-amber-600 text-white rounded-full px-5" />}>
+                Get Started
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-[500px] rounded-[2rem] border-amber-100 bg-white">
+                <DialogHeader>
+                  <DialogTitle className="text-2xl font-bold text-amber-900 flex items-center gap-2">
+                    <Sprout className="text-amber-500" />
+                    Welcome to AgriData
+                  </DialogTitle>
+                  <DialogDescription className="text-slate-500 pt-2">
+                    Start exploring Indian agricultural intelligence with these 3 easy steps:
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-6 pt-4">
+                  {[
+                    { icon: Filter, title: "Apply Regional Filters", desc: "Select a specific State or Crop from the top bar to narrow down the dataset." },
+                    { icon: BarChart3, title: "Analyze Overviews", desc: "Use the Dashboard to see high-level production, area, and yield metrics." },
+                    { icon: Wand2, title: "Get AI Insights", desc: "Click 'Predictive Insight' to generate a Gemini-powered analysis of the current data." }
+                  ].map((step, i) => (
+                    <div key={i} className="flex gap-4">
+                      <div className="w-10 h-10 rounded-xl bg-amber-50 flex items-center justify-center text-amber-600 shrink-0 border border-amber-100">
+                        <step.icon size={20} />
+                      </div>
+                      <div>
+                        <h5 className="font-bold text-slate-900">{step.title}</h5>
+                        <p className="text-sm text-slate-500 leading-relaxed">{step.desc}</p>
+                      </div>
+                    </div>
+                  ))}
+                  <DialogClose render={<Button className="w-full bg-amber-500 hover:bg-amber-600 rounded-xl h-12 font-bold mt-4" />}>
+                    Explore Dashboard
+                  </DialogClose>
+                </div>
+              </DialogContent>
+            </Dialog>
           </div>
         </div>
       </nav>
@@ -115,7 +173,7 @@ export default function App() {
             </motion.div>
           ) : (
             <motion.div
-              key="content"
+              key={activeView}
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.5 }}
@@ -167,218 +225,331 @@ export default function App() {
                 </Select>
               </div>
 
-              {/* KPI Cards */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                {[
-                  { title: "Total Production", value: `${(summary?.totalProduction! / 1e6).toFixed(2)}M`, unit: "Metric Tons", icon: Database, color: "amber", trend: "+2.4%" },
-                  { title: "Average Yield", value: summary?.avgYield.toFixed(2), unit: "Tons / Hectare", icon: TrendingUp, color: "emerald", trend: "+1.2%" },
-                  { title: "Total Area", value: `${(summary?.totalArea! / 1e6).toFixed(2)}M`, unit: "Hectares", icon: Map, color: "blue", trend: "-0.5%" },
-                ].map((kpi, i) => (
-                   <motion.div
-                    key={i}
-                    whileHover={{ y: -5 }}
-                    className="p-6 rounded-[2.5rem] bg-white border border-amber-100 shadow-[0_8px_30px_rgb(253,251,241,0.5)] border-b-4 border-b-amber-200/50 relative overflow-hidden group"
-                   >
-                    <div className={`absolute top-0 right-0 w-32 h-32 bg-${kpi.color}-50/50 rounded-full blur-3xl -mr-16 -mt-16 group-hover:scale-150 transition-all duration-500`} />
-                    <div className="flex justify-between items-start relative z-10">
-                      <div>
-                        <p className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-1">{kpi.title}</p>
-                        <h3 className="text-3xl font-black text-slate-900 tracking-tight">{kpi.value}</h3>
-                        <p className="text-[10px] font-bold text-slate-400 mt-1">{kpi.unit}</p>
-                      </div>
-                      <div className={`w-12 h-12 rounded-2xl bg-${kpi.color}-50 flex items-center justify-center text-${kpi.color}-600 border border-${kpi.color}-100`}>
-                        <kpi.icon size={24} />
-                      </div>
-                    </div>
-                    <div className="mt-6 flex items-center gap-2 relative z-10">
-                      <Badge variant="secondary" className={`bg-${kpi.color}-50 text-${kpi.color}-700 border-none rounded-lg font-bold text-[10px]`}>
-                        {kpi.trend.startsWith('+') ? <ArrowUpRight size={10} className="mr-1 inline" /> : <ArrowDownRight size={10} className="mr-1 inline" />}
-                        {kpi.trend} vs LY
-                      </Badge>
-                      <span className="text-[10px] text-slate-400 font-medium">Growth trajectory</span>
-                    </div>
-                   </motion.div>
-                ))}
-              </div>
-
-              {/* Main Analytics Tabs */}
-              <Tabs defaultValue="overview" className="space-y-6">
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                  <TabsList className="bg-amber-100/50 p-1 rounded-2xl h-12 inline-flex border border-amber-100/80">
-                    <TabsTrigger value="overview" className="rounded-xl px-6 data-[state=active]:bg-white data-[state=active]:text-amber-700 data-[state=active]:shadow-sm font-bold text-xs uppercase tracking-wider transition-all">Overview</TabsTrigger>
-                    <TabsTrigger value="states" className="rounded-xl px-6 data-[state=active]:bg-white data-[state=active]:text-amber-700 data-[state=active]:shadow-sm font-bold text-xs uppercase tracking-wider transition-all">States</TabsTrigger>
-                    <TabsTrigger value="yield" className="rounded-xl px-6 data-[state=active]:bg-white data-[state=active]:text-amber-700 data-[state=active]:shadow-sm font-bold text-xs uppercase tracking-wider transition-all">Yield Density</TabsTrigger>
-                  </TabsList>
-
-                  <div className="flex items-center gap-2">
-                    <Button 
-                      variant="outline" 
-                      className="rounded-xl border-amber-200 text-amber-700 h-10 px-4 hover:bg-amber-50"
-                      onClick={handleGenerateAI}
-                      disabled={generatingInsight}
-                    >
-                      {generatingInsight ? <Loader2 size={16} className="animate-spin mr-2" /> : <Wand2 size={16} className="mr-2" />}
-                      Predictive Insight
-                    </Button>
-                    <Button variant="ghost" size="icon" className="rounded-xl text-amber-500 hover:bg-amber-50">
-                      <Info size={20} />
-                    </Button>
-                  </div>
-                </div>
-
-                <TabsContent value="overview" className="space-y-6">
-                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                      <Card className="rounded-[2.5rem] border-amber-100 shadow-sm overflow-hidden bg-white">
-                        <CardHeader className="pb-0 pt-8 px-8">
-                          <CardTitle className="text-xl font-bold text-slate-900">Production Trendlines</CardTitle>
-                          <CardDescription>Yearly aggregate production growth patterns</CardDescription>
-                        </CardHeader>
-                        <CardContent className="h-[350px] p-4">
-                          <ResponsiveContainer width="100%" height="100%">
-                            <AreaChart data={trends}>
-                              <defs>
-                                <linearGradient id="colorProd" x1="0" y1="0" x2="0" y2="1">
-                                  <stop offset="5%" stopColor="#F59E0B" stopOpacity={0.3}/>
-                                  <stop offset="95%" stopColor="#F59E0B" stopOpacity={0}/>
-                                </linearGradient>
-                              </defs>
-                              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" />
-                              <XAxis dataKey="year" axisLine={false} tickLine={false} tick={{fill: '#94A3B8', fontSize: 12}} />
-                              <YAxis axisLine={false} tickLine={false} tick={{fill: '#94A3B8', fontSize: 12}} />
-                              <Tooltip 
-                                contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
-                                cursor={{ stroke: '#F59E0B', strokeWidth: 2 }}
-                              />
-                              <Area type="monotone" dataKey="production" stroke="#F59E0B" strokeWidth={4} fillOpacity={1} fill="url(#colorProd)" />
-                            </AreaChart>
-                          </ResponsiveContainer>
-                        </CardContent>
-                      </Card>
-
-                      <Card className="rounded-[2.5rem] border-amber-100 shadow-sm overflow-hidden bg-white">
-                        <CardHeader className="pb-0 pt-8 px-8 flex flex-row items-center justify-between space-y-0">
-                          <div>
-                            <CardTitle className="text-xl font-bold text-slate-900">Crop Distribution</CardTitle>
-                            <CardDescription>Share of crops in regional production</CardDescription>
-                          </div>
-                   
-                        </CardHeader>
-                        <CardContent className="h-[350px] p-4">
-                          <ResponsiveContainer width="100%" height="100%">
-                            <PieChart>
-                              <Pie
-                                data={cropDistribution}
-                                cx="50%"
-                                cy="50%"
-                                innerRadius={80}
-                                outerRadius={120}
-                                paddingAngle={5}
-                                dataKey="production"
-                                nameKey="crop"
-                                animationBegin={0}
-                                animationDuration={1000}
-                              >
-                                {cropDistribution.map((entry, index) => (
-                                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                                ))}
-                              </Pie>
-                              <Tooltip 
-                                contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
-                              />
-                            </PieChart>
-                          </ResponsiveContainer>
-                        </CardContent>
-                      </Card>
-                   </div>
-
-                   {aiInsight && (
+              {activeView === "dashboard" && (
+                <>
+                {/* KPI Cards */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  {[
+                    { title: "Total Production", value: `${(summary?.totalProduction! / 1e6).toFixed(2)}M`, unit: "Metric Tons", icon: Database, color: "amber", trend: "+2.4%" },
+                    { title: "Average Yield", value: summary?.avgYield.toFixed(2), unit: "Tons / Hectare", icon: TrendingUp, color: "emerald", trend: "+1.2%" },
+                    { title: "Total Area", value: `${(summary?.totalArea! / 1e6).toFixed(2)}M`, unit: "Hectares", icon: Map, color: "blue", trend: "-0.5%" },
+                  ].map((kpi, i) => (
                     <motion.div
-                      initial={{ opacity: 0, scale: 0.95 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      className="p-8 rounded-[3rem] bg-gradient-to-br from-amber-500 to-amber-600 text-white shadow-xl shadow-amber-200"
+                      key={i}
+                      whileHover={{ y: -5 }}
+                      className="p-6 rounded-[2.5rem] bg-white border border-amber-100 shadow-[0_8px_30px_rgb(253,251,241,0.5)] border-b-4 border-b-amber-200/50 relative overflow-hidden group"
                     >
-                      <div className="flex items-center gap-3 mb-4">
-                        <div className="p-2 bg-white/20 rounded-lg">
-                          <Wand2 size={24} />
+                      <div className={`absolute top-0 right-0 w-32 h-32 bg-${kpi.color}-50/50 rounded-full blur-3xl -mr-16 -mt-16 group-hover:scale-150 transition-all duration-500`} />
+                      <div className="flex justify-between items-start relative z-10">
+                        <div>
+                          <p className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-1">{kpi.title}</p>
+                          <h3 className="text-3xl font-black text-slate-900 tracking-tight">{kpi.value}</h3>
+                          <p className="text-[10px] font-bold text-slate-400 mt-1">{kpi.unit}</p>
                         </div>
-                        <h4 className="text-xl font-bold">Predictive Field Insights</h4>
+                        <div className={`w-12 h-12 rounded-2xl bg-${kpi.color}-50 flex items-center justify-center text-${kpi.color}-600 border border-${kpi.color}-100`}>
+                          <kpi.icon size={24} />
+                        </div>
                       </div>
-                      <div className="space-y-4 text-amber-50 opacity-90 leading-relaxed font-medium">
-                        {aiInsight.split("\n").map((line, i) => (
-                          <p key={i}>{line}</p>
-                        ))}
-                      </div>
-                      <div className="mt-8 pt-6 border-t border-white/10 flex justify-between items-center text-[10px] font-bold uppercase tracking-widest text-white/60">
-                        <span>Powered by Gemini 1.5 Flash</span>
-                        <span>Generated on {new Date().toLocaleDateString()}</span>
+                      <div className="mt-6 flex items-center gap-2 relative z-10">
+                        <Badge variant="secondary" className={`bg-${kpi.color}-50 text-${kpi.color}-700 border-none rounded-lg font-bold text-[10px]`}>
+                          {kpi.trend.startsWith('+') ? <ArrowUpRight size={10} className="mr-1 inline" /> : <ArrowDownRight size={10} className="mr-1 inline" />}
+                          {kpi.trend} vs LY
+                        </Badge>
+                        <span className="text-[10px] text-slate-400 font-medium">Growth trajectory</span>
                       </div>
                     </motion.div>
-                   )}
-                </TabsContent>
+                  ))}
+                </div>
 
-                <TabsContent value="states" className="space-y-6">
-                  <Card className="rounded-[2.5rem] border-amber-100 shadow-sm overflow-hidden bg-white">
-                    <CardHeader className="pt-8 px-8">
-                       <CardTitle className="text-xl font-bold">State-wise Production Breakdown</CardTitle>
-                       <CardDescription>Comparative analysis of regional output metrics</CardDescription>
-                    </CardHeader>
-                    <CardContent className="h-[450px] p-8">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <BarChart data={stateComparison} layout="vertical">
-                            <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#F1F5F9" />
-                            <XAxis type="number" hide />
-                            <YAxis dataKey="state" type="category" axisLine={false} tickLine={false} tick={{fill: '#475569', fontSize: 12, fontWeight: 600}} width={120} />
-                            <Tooltip 
-                               cursor={{fill: '#FFFBEB'}}
-                               contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
-                            />
-                            <Bar dataKey="production" fill="#F59E0B" radius={[0, 20, 20, 0]} barSize={32} />
+                {/* Main Analytics Tabs */}
+                <Tabs defaultValue="overview" className="space-y-6">
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <TabsList className="bg-amber-100/50 p-1 rounded-2xl h-12 inline-flex border border-amber-100/80">
+                      <TabsTrigger value="overview" className="rounded-xl px-6 data-[state=active]:bg-white data-[state=active]:text-amber-700 data-[state=active]:shadow-sm font-bold text-xs uppercase tracking-wider transition-all">Overview</TabsTrigger>
+                      <TabsTrigger value="states" className="rounded-xl px-6 data-[state=active]:bg-white data-[state=active]:text-amber-700 data-[state=active]:shadow-sm font-bold text-xs uppercase tracking-wider transition-all">States</TabsTrigger>
+                      <TabsTrigger value="yield" className="rounded-xl px-6 data-[state=active]:bg-white data-[state=active]:text-amber-700 data-[state=active]:shadow-sm font-bold text-xs uppercase tracking-wider transition-all">Yield Density</TabsTrigger>
+                    </TabsList>
+
+                    <div className="flex items-center gap-2">
+                      <Button 
+                        variant="outline" 
+                        className="rounded-xl border-amber-200 text-amber-700 h-10 px-4 hover:bg-amber-50"
+                        onClick={handleGenerateAI}
+                        disabled={generatingInsight}
+                      >
+                        {generatingInsight ? <Loader2 size={16} className="animate-spin mr-2" /> : <Wand2 size={16} className="mr-2" />}
+                        Predictive Insight
+                      </Button>
+                      <Button variant="ghost" size="icon" className="rounded-xl text-amber-500 hover:bg-amber-50">
+                        <Info size={20} />
+                      </Button>
+                    </div>
+                  </div>
+
+                  <TabsContent value="overview" className="space-y-6">
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <Card className="rounded-[2.5rem] border-amber-100 shadow-sm overflow-hidden bg-white min-h-[450px]">
+                          <CardHeader className="pb-0 pt-8 px-8">
+                            <CardTitle className="text-xl font-bold text-slate-900">Production Trendlines</CardTitle>
+                            <CardDescription>Yearly aggregate production growth patterns</CardDescription>
+                          </CardHeader>
+                          <CardContent className="h-[350px] p-4 w-full">
+                            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+                              <AreaChart data={trends} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                                <defs>
+                                  <linearGradient id="colorProd" x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="5%" stopColor="#F59E0B" stopOpacity={0.3}/>
+                                    <stop offset="95%" stopColor="#F59E0B" stopOpacity={0}/>
+                                  </linearGradient>
+                                </defs>
+                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" />
+                                <XAxis dataKey="year" axisLine={false} tickLine={false} tick={{fill: '#94A3B8', fontSize: 12}} />
+                                <YAxis axisLine={false} tickLine={false} tick={{fill: '#94A3B8', fontSize: 12}} />
+                                <Tooltip 
+                                  contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
+                                  cursor={{ stroke: '#F59E0B', strokeWidth: 2 }}
+                                />
+                                <Area type="monotone" dataKey="production" stroke="#F59E0B" strokeWidth={4} fillOpacity={1} fill="url(#colorProd)" />
+                              </AreaChart>
+                            </ResponsiveContainer>
+                          </CardContent>
+                        </Card>
+
+                        <Card className="rounded-[2.5rem] border-amber-100 shadow-sm overflow-hidden bg-white min-h-[450px]">
+                          <CardHeader className="pb-0 pt-8 px-8 flex flex-row items-center justify-between space-y-0">
+                            <div>
+                              <CardTitle className="text-xl font-bold text-slate-900">Crop Distribution</CardTitle>
+                              <CardDescription>Share of crops in regional production</CardDescription>
+                            </div>
+                    
+                          </CardHeader>
+                          <CardContent className="h-[350px] p-4 w-full">
+                            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+                              <PieChart>
+                                <Pie
+                                  data={cropDistribution}
+                                  cx="50%"
+                                  cy="50%"
+                                  innerRadius={80}
+                                  outerRadius={120}
+                                  paddingAngle={5}
+                                  dataKey="production"
+                                  nameKey="crop"
+                                  animationBegin={0}
+                                  animationDuration={1000}
+                                >
+                                  {cropDistribution.map((entry, index) => (
+                                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                                  ))}
+                                </Pie>
+                                <Tooltip 
+                                  contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
+                                />
+                              </PieChart>
+                            </ResponsiveContainer>
+                          </CardContent>
+                        </Card>
+                    </div>
+
+                    {aiInsight && (
+                      <motion.div
+                        initial={{ opacity: 0, scale: 0.95 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        className="p-8 rounded-[3rem] bg-gradient-to-br from-amber-500 to-amber-600 text-white shadow-xl shadow-amber-200"
+                      >
+                        <div className="flex items-center gap-3 mb-4">
+                          <div className="p-2 bg-white/20 rounded-lg">
+                            <Wand2 size={24} />
+                          </div>
+                          <h4 className="text-xl font-bold">Predictive Field Insights</h4>
+                        </div>
+                        <div className="space-y-4 text-amber-50 opacity-90 leading-relaxed font-medium">
+                          {aiInsight.split("\n").map((line, i) => (
+                            <p key={i}>{line}</p>
+                          ))}
+                        </div>
+                        <div className="mt-8 pt-6 border-t border-white/10 flex justify-between items-center text-[10px] font-bold uppercase tracking-widest text-white/60">
+                          <span>Powered by Gemini 1.5 Flash</span>
+                          <span>Generated on {new Date().toLocaleDateString()}</span>
+                        </div>
+                      </motion.div>
+                    )}
+                  </TabsContent>
+
+                  <TabsContent value="states" className="space-y-6">
+                    <Card className="rounded-[2.5rem] border-amber-100 shadow-sm overflow-hidden bg-white min-h-[550px]">
+                      <CardHeader className="pt-8 px-8">
+                        <CardTitle className="text-xl font-bold">State-wise Production Breakdown</CardTitle>
+                        <CardDescription>Comparative analysis of regional output metrics</CardDescription>
+                      </CardHeader>
+                      <CardContent className="h-[450px] p-8 w-full">
+                          <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+                            <BarChart data={stateComparison} layout="vertical">
+                              <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#F1F5F9" />
+                              <XAxis type="number" hide />
+                              <YAxis dataKey="state" type="category" axisLine={false} tickLine={false} tick={{fill: '#475569', fontSize: 12, fontWeight: 600}} width={120} />
+                              <Tooltip 
+                                cursor={{fill: '#FFFBEB'}}
+                                contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
+                              />
+                              <Bar dataKey="production" fill="#F59E0B" radius={[0, 20, 20, 0]} barSize={32} />
+                            </BarChart>
+                          </ResponsiveContainer>
+                      </CardContent>
+                    </Card>
+                  </TabsContent>
+
+                  <TabsContent value="yield" className="space-y-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                      <div className="space-y-6">
+                          <div className="p-8 rounded-[2.5rem] bg-indigo-600 text-white">
+                            <h4 className="text-2xl font-bold mb-2">Yield Optimization</h4>
+                            <p className="text-indigo-100/70 text-sm mb-6">Current data suggests a steady 2.5% increase in yield density across northern states.</p>
+                            <ul className="space-y-3">
+                                {[
+                                  "Increase in fertilizer efficiency",
+                                  "Advancements in pest control",
+                                  "Stable monsoon patterns",
+                                  "New high-yield crop variants"
+                                ].map((item, i) => (
+                                  <li key={i} className="flex items-center gap-3 text-sm font-medium">
+                                    <div className="w-1.5 h-1.5 bg-white rounded-full" />
+                                    {item}
+                                  </li>
+                                ))}
+                            </ul>
+                          </div>
+                      </div>
+                      <Card className="rounded-[2.5rem] border-amber-100 shadow-sm overflow-hidden bg-white min-h-[400px]">
+                          <CardHeader className="pt-8 px-8">
+                            <CardTitle className="text-xl font-bold">Yield Efficiency Trend</CardTitle>
+                          </CardHeader>
+                          <CardContent className="h-[300px] p-6 w-full">
+                            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+                              <LineChart data={trends}>
+                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" />
+                                <XAxis dataKey="year" axisLine={false} tickLine={false} />
+                                <YAxis axisLine={false} tickLine={false} />
+                                <Tooltip contentStyle={{ borderRadius: '12px', border: 'none' }} />
+                                <Line type="monotone" dataKey="yield" stroke="#10B981" strokeWidth={4} dot={{ r: 6, fill: '#10B981', strokeWidth: 0 }} activeDot={{ r: 8 }} />
+                              </LineChart>
+                            </ResponsiveContainer>
+                          </CardContent>
+                      </Card>
+                    </div>
+                  </TabsContent>
+                </Tabs>
+                </>
+              )}
+
+              {activeView === "crop-analysis" && (
+                <div className="space-y-8">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h2 className="text-3xl font-black text-amber-900 leading-tight">Detailed Crop Analysis</h2>
+                      <p className="text-slate-500 font-medium mt-1">Granular harvest metrics and regional efficiency</p>
+                    </div>
+                    <div className="w-16 h-16 bg-emerald-100 rounded-3xl flex items-center justify-center text-emerald-600 border border-emerald-200">
+                      <Tractor size={32} />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <Card className="rounded-[2.5rem] border-amber-100 shadow-sm bg-white p-8">
+                      <h4 className="text-xl font-bold mb-6 flex items-center gap-2">
+                        <TrendingUp className="text-emerald-500" size={20} />
+                        Efficiency Matrix
+                      </h4>
+                      <Table>
+                        <TableHeader>
+                          <TableRow className="border-amber-50">
+                            <TableHead className="font-bold text-amber-900">Crop</TableHead>
+                            <TableHead className="font-bold text-amber-900">Avg Area (M Ha)</TableHead>
+                            <TableHead className="font-bold text-amber-900">Efficiency</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {cropDistribution.map((item, i) => (
+                            <TableRow key={i} className="hover:bg-amber-50/50 transition-colors border-amber-50">
+                              <TableCell className="font-bold text-slate-700">{item.crop}</TableCell>
+                              <TableCell className="text-slate-500">{(item.production / 1000).toFixed(2)}</TableCell>
+                              <TableCell>
+                                <Badge className="bg-emerald-100 text-emerald-700 border-none font-bold">Optimal</Badge>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </Card>
+
+                    <Card className="rounded-[2.5rem] border-amber-100 shadow-sm bg-white p-8">
+                      <h4 className="text-xl font-bold mb-6 flex items-center gap-2">
+                        <LineIcon className="text-amber-500" size={20} />
+                        Yield Density Heat
+                      </h4>
+                      <div className="h-[300px] w-full">
+                        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+                          <BarChart data={cropDistribution}>
+                            <XAxis dataKey="crop" axisLine={false} tickLine={false} />
+                            <Tooltip contentStyle={{ borderRadius: '12px', border: 'none' }} />
+                            <Bar dataKey="production" fill="#10B981" radius={[10, 10, 0, 0]} />
                           </BarChart>
                         </ResponsiveContainer>
-                    </CardContent>
-                  </Card>
-                </TabsContent>
-
-                <TabsContent value="yield" className="space-y-6">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                     <div className="space-y-6">
-                        <div className="p-8 rounded-[2.5rem] bg-indigo-600 text-white">
-                           <h4 className="text-2xl font-bold mb-2">Yield Optimization</h4>
-                           <p className="text-indigo-100/70 text-sm mb-6">Current data suggests a steady 2.5% increase in yield density across northern states.</p>
-                           <ul className="space-y-3">
-                              {[
-                                "Increase in fertilizer efficiency",
-                                "Advancements in pest control",
-                                "Stable monsoon patterns",
-                                "New high-yield crop variants"
-                              ].map((item, i) => (
-                                <li key={i} className="flex items-center gap-3 text-sm font-medium">
-                                  <div className="w-1.5 h-1.5 bg-white rounded-full" />
-                                  {item}
-                                </li>
-                              ))}
-                           </ul>
-                        </div>
-                     </div>
-                     <Card className="rounded-[2.5rem] border-amber-100 shadow-sm overflow-hidden bg-white">
-                        <CardHeader className="pt-8 px-8">
-                          <CardTitle className="text-xl font-bold">Yield Efficiency Trend</CardTitle>
-                        </CardHeader>
-                        <CardContent className="h-[300px] p-6">
-                          <ResponsiveContainer width="100%" height="100%">
-                            <LineChart data={trends}>
-                              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" />
-                              <XAxis dataKey="year" axisLine={false} tickLine={false} />
-                              <YAxis axisLine={false} tickLine={false} />
-                              <Tooltip contentStyle={{ borderRadius: '12px', border: 'none' }} />
-                              <Line type="monotone" dataKey="yield" stroke="#10B981" strokeWidth={4} dot={{ r: 6, fill: '#10B981', strokeWidth: 0 }} activeDot={{ r: 8 }} />
-                            </LineChart>
-                          </ResponsiveContainer>
-                        </CardContent>
-                     </Card>
+                      </div>
+                    </Card>
                   </div>
-                </TabsContent>
-              </Tabs>
+                </div>
+              )}
+
+              {activeView === "market-trends" && (
+                <div className="space-y-8">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h2 className="text-3xl font-black text-amber-900 leading-tight">Market & Economic Trends</h2>
+                      <p className="text-slate-500 font-medium mt-1">Macro-level shifts in agricultural output value</p>
+                    </div>
+                    <div className="w-16 h-16 bg-blue-100 rounded-3xl flex items-center justify-center text-blue-600 border border-blue-200">
+                      <TrendingUp size={32} />
+                    </div>
+                  </div>
+
+                  <Card className="rounded-[2.5rem] border-blue-100 shadow-sm bg-white p-8 relative overflow-hidden">
+                    <div className="absolute top-0 right-0 w-64 h-64 bg-blue-50 rounded-full blur-[100px] -mr-32 -mt-32 opacity-50" />
+                    <div className="relative z-10">
+                      <h4 className="text-xl font-bold mb-8">Inter-Year Production Value Volatility</h4>
+                      <div className="h-[400px] w-full">
+                        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+                          <AreaChart data={trends}>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#EEF2FF" />
+                            <XAxis dataKey="year" axisLine={false} tickLine={false} />
+                            <YAxis axisLine={false} tickLine={false} />
+                            <Tooltip 
+                                contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
+                            />
+                            <Area type="stepBefore" dataKey="production" stroke="#2563EB" fill="#DBEafe" strokeWidth={3} />
+                          </AreaChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+                  </Card>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    {[
+                      { icon: BookOpen, title: "Export Potential", desc: "Production surplus in Northern states indicates high export capability.", color: "bg-blue-50 text-blue-600" },
+                      { icon: Lightbulb, title: "Policy Impact", desc: "MSP updates in 2023 favored Oilseeds, showing a 15% area shift.", color: "bg-amber-50 text-amber-600" },
+                      { icon: CheckCircle2, title: "Sustainable Growth", desc: "Yield maintains a stable 2% CAGR over the last 5 tracking years.", color: "bg-emerald-50 text-emerald-600" },
+                    ].map((item, i) => (
+                      <Card key={i} className="p-6 rounded-3xl border-slate-100 shadow-sm bg-white hover:border-amber-200 transition-all">
+                        <div className={`w-12 h-12 rounded-2xl ${item.color} flex items-center justify-center mb-4`}>
+                          <item.icon size={24} />
+                        </div>
+                        <h5 className="font-bold text-slate-900 mb-2">{item.title}</h5>
+                        <p className="text-sm text-slate-500 leading-relaxed font-medium">{item.desc}</p>
+                      </Card>
+                    ))}
+                  </div>
+                </div>
+              )}
             </motion.div>
           )}
         </AnimatePresence>

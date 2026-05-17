@@ -87,11 +87,9 @@ async function startServer() {
         return res.status(500).json({ error: "Gemini API key not configured" });
       }
 
-      const prompt = `As an agricultural expert, analyze this crop production data summary and provide 3 key insights or recommendations for farmers and policymakers: ${dataSummary}`;
-      
       const response = await ai.models.generateContent({
         model: "gemini-3-flash-preview",
-        contents: prompt,
+        contents: `As an agricultural expert, analyze this crop production data summary and provide 3 key insights or recommendations for farmers and policymakers: ${dataSummary}`,
       });
       
       res.json({ insight: response.text });
