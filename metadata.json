@@ -1,0 +1,6 @@
+{
+  "name": "AgriData Explorer",
+  "description": "Comprehensive agricultural data analytics platform for exploring Indian crop production, yield, and cultivation trends.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
